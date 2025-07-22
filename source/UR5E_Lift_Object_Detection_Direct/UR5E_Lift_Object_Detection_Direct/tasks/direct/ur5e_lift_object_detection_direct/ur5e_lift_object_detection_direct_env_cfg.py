@@ -11,6 +11,8 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 
+from ultralytics import YOLO
+
 
 @configclass
 class UR5ELiftObjectDetectionDirectEnvCfg(DirectRLEnvCfg):
@@ -18,7 +20,6 @@ class UR5ELiftObjectDetectionDirectEnvCfg(DirectRLEnvCfg):
     decimation = 1
     episode_length_s = 5.0
 
-    # simulation
     sim: SimulationCfg = SimulationCfg(dt=1/100, render_interval=decimation)
 
     # robot(s)
@@ -34,10 +35,14 @@ class UR5ELiftObjectDetectionDirectEnvCfg(DirectRLEnvCfg):
     lifting_rew_weight = 75.0
     ground_hit_avoidance_rew_weight = 1.0
     joint_2_tuning_rew_weight = 2.0
+    tray_moved_rew_weight = 0.0
 
     # camera settings
     camera_width = 1280
     camera_height = 960
+
+    # Perception model
+    #model = YOLO("/home/ubuntu/Desktop/yolo/runs/detect/train/weights/best.pt")
 
     # spaces definition
     action_space = 7

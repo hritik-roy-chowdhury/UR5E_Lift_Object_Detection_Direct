@@ -27,7 +27,8 @@ from isaaclab.utils.math import subtract_frame_transforms
 from .ur5e_lift_object_detection_direct_env_cfg import UR5ELiftObjectDetectionDirectEnvCfg
 
 from .mdp.rewards import object_position_error, object_position_error_tanh, end_effector_orientation_error
-from .mdp.rewards import object_is_lifted, ground_hit_avoidance, joint_2_tuning
+from .mdp.rewards import object_is_lifted, ground_hit_avoidance, joint_2_tuning, tray_moved
+from .object_detection import inference
 
 
 class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
@@ -159,6 +160,9 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         robot_quat_w = self.ur5e.data.root_state_w[:, 3:7]  # Robot base orientation in world frame
         object_pos_b, _ = subtract_frame_transforms(robot_pos_w, robot_quat_w, object_pos_w)
 
+        # Object detection
+        #object_position = inference(self.camera)
+
         # Concatenate robot state and object position for observations
         robot_state = torch.cat(
             [
@@ -187,9 +191,11 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
             self.cfg.lifting_rew_weight,
             self.cfg.ground_hit_avoidance_rew_weight,
             self.cfg.joint_2_tuning_rew_weight,
+            self.cfg.tray_moved_rew_weight,
             self.object,
             self.ee_frame,
-            self.ur5e_joint_pos
+            self.ur5e_joint_pos,
+            self.tray
         )
         return total_reward
 
@@ -247,9 +253,11 @@ def compute_rewards(
     lifting_rew_weight: float,
     ground_hit_avoidance_rew_weight: float,
     joint_2_tuning_rew_weight: float,
+    tray_moved_rew_weight: float,
     object: RigidObject,
     ee_frame: FrameTransformer,
     ur5e_joint_pos: torch.Tensor,
+    tray: RigidObject
 ):
     ee_pos_track_rew = ee_pos_track_rew_weight * object_position_error(object, ee_frame)
     ee_pos_track_fg_rew = ee_pos_track_fg_rew_weight * object_position_error_tanh(object, ee_frame, std=0.1)
@@ -257,6 +265,7 @@ def compute_rewards(
     lifting_rew = lifting_rew_weight * object_is_lifted(object, ee_frame, std=0.1, std_height=0.1)
     ground_hit_avoidance_rew = ground_hit_avoidance_rew_weight * ground_hit_avoidance(object, ee_frame)
     joint_2_tuning_rew = joint_2_tuning_rew_weight * joint_2_tuning(ur5e_joint_pos)
+    tray_moved_rew = tray_moved_rew_weight * tray_moved(tray)
     
-    total_reward = ee_pos_track_rew + ee_pos_track_fg_rew + ee_orient_track_rew + lifting_rew + ground_hit_avoidance_rew + joint_2_tuning_rew
+    total_reward = ee_pos_track_rew + ee_pos_track_fg_rew + ee_orient_track_rew + lifting_rew + ground_hit_avoidance_rew + joint_2_tuning_rew + tray_moved_rew
     return total_reward

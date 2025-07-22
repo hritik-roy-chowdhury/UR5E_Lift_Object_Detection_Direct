@@ -6,6 +6,12 @@ from isaaclab.assets import RigidObject
 from isaaclab.sensors.frame_transformer.frame_transformer import FrameTransformer
 from isaaclab.utils.math import quat_error_magnitude, quat_mul
 
+def tray_moved(tray: RigidObject) -> torch.Tensor: 
+    tray_vel = tray.data.root_vel_w
+    tray_speed = torch.norm(tray_vel, dim=1)
+
+    return tray_speed
+
 def joint_2_tuning(ur5e_joint_pos: torch.Tensor) -> torch.Tensor:
     joint_2_pos = ur5e_joint_pos[:, 1]  # Joint 2 position
     reward = torch.tanh(-joint_2_pos / 0.5) 
@@ -33,7 +39,7 @@ def object_position_error_tanh(object: RigidObject, ee_frame: FrameTransformer, 
     return reward
 
 def object_is_lifted(object: RigidObject, ee_frame: FrameTransformer, std: float, std_height: float) -> torch.Tensor:
-    object_height_from_initial = object.data.root_pos_w[:, 2] - 1.072
+    object_height_from_initial = object.data.root_pos_w[:, 2] - 1.122
     object_height_reward = torch.tanh(object_height_from_initial / std_height)
 
     reach_reward = object_position_error_tanh(object, ee_frame, std)
