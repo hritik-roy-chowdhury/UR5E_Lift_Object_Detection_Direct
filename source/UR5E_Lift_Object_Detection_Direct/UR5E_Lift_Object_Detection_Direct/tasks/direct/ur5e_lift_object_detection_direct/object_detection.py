@@ -62,18 +62,18 @@ def inference(
     combined_results = torch.cat((bounding_boxes, object_distances.unsqueeze(1)), dim=1)
 
     # Printing
-    print("\n\nResults for Env 1:")
-    print(f"Number of detected objects: {len(results[0].boxes.xywhn)}")
-    if len(results[0].boxes.xywhn) > 0:
-        print(f"Class of Best: {results[0].boxes.cls[0]}")
-        print(f"Confidence of Best: {results[0].boxes.conf[0]}")
-        print(f"Bounding Box of Best: {bounding_boxes[0]}")
-    else:
-        print("No objects detected.")
+    # print("\n\nResults for Env 1:")
+    # print(f"Number of detected objects: {len(results[0].boxes.xywhn)}")
+    # if len(results[0].boxes.xywhn) > 0:
+    #     print(f"Class of Best: {results[0].boxes.cls[0]}")
+    #     print(f"Confidence of Best: {results[0].boxes.conf[0]}")
+    #     print(f"Bounding Box of Best: {bounding_boxes[0]}")
+    # else:
+    #     print("No objects detected.")
        
-    print(f"Shape of Depth Image: {depth_data.shape}")
+    # print(f"Shape of Depth Image: {depth_data.shape}")
 
-    if len(object_distances) > 0:
-        print(f"Object Distance: {object_distances[0]}")
+    # if len(object_distances) > 0:
+    #     print(f"Object Distance: {object_distances[0]}")
 
     return combined_results
