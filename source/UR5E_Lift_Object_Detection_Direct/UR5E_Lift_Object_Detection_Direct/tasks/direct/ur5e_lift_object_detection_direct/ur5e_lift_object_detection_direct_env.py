@@ -90,28 +90,28 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
                 physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 1.0), metallic=0.5),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 1.25)),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.6, 0.0, 1.25)),
         )
         self.object = RigidObject(cfg=object_cfg)
         self.scene.rigid_objects["object"] = self.object
 
         # Camera
-        # camera_cfg = TiledCameraCfg(
-        #     prim_path="/World/envs/env_.*/camera",
-        #     data_types=["rgb", "depth"],
-        #     spawn=sim_utils.PinholeCameraCfg(
-        #         focal_length=1.5, focus_distance=0.8, horizontal_aperture=3.896,
-        #     ),
-        #     width=self.cfg.camera_width,
-        #     height=self.cfg.camera_height,
-        #     update_period=1/20,
-        #     offset=CameraCfg.OffsetCfg(
-        #         pos=(1.0, 0.0, 1.85), 
-        #         rot=(-0.24184, 0.66446, 0.66446, -0.24184), # real, x, y, z (zyx rotation with frames changing with each subrotation)
-        #     ),
-        # )
-        # self.camera = TiledCamera(cfg=camera_cfg)
-        # self.scene.sensors["camera"] = self.camera
+        camera_cfg = TiledCameraCfg(
+            prim_path="/World/envs/env_.*/camera",
+            data_types=["rgb", "depth"],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=1.5, focus_distance=0.8, horizontal_aperture=3.896,
+            ),
+            width=self.cfg.camera_width,
+            height=self.cfg.camera_height,
+            update_period=1/20,
+            offset=CameraCfg.OffsetCfg(
+                pos=(1.0, 0.0, 1.85), 
+                rot=(-0.24184, 0.66446, 0.66446, -0.24184), # real, x, y, z (zyx rotation with frames changing with each subrotation)
+            ),
+        )
+        self.camera = TiledCamera(cfg=camera_cfg)
+        self.scene.sensors["camera"] = self.camera
 
         # robot
         self.ur5e = Articulation(self.cfg.ur5e_cfg)
@@ -161,7 +161,14 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         object_pos_b, _ = subtract_frame_transforms(robot_pos_w, robot_quat_w, object_pos_w)
 
         # Object detection
-        #object_position = inference(self.camera)
+        object_position = inference(self.camera)
+
+        # End-effector position in camera frame
+        ee_pos_w = self.ee_frame.data.target_pos_w[..., 0, :]
+        ee_quat_w = self.ee_frame.data.target_quat_w[..., 0, :]
+        camera_pos_w = self.camera.data.pos_w
+        camera_quat_w = self.camera.data.quat_w_world
+        ee_pos_in_camera_frame, _ = subtract_frame_transforms(camera_pos_w, camera_quat_w, ee_pos_w, ee_quat_w)
 
         # Concatenate robot state and object position for observations
         robot_state = torch.cat(
@@ -170,7 +177,8 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
                 self.ur5e_joint_vel[:, self.arm_joints_ids],
                 self.ur5e_joint_pos[:, self.gripper_joints_ids],
                 self.ur5e_joint_vel[:, self.gripper_joints_ids],
-                object_pos_b
+                ee_pos_in_camera_frame,
+                object_position
             ],
             dim=-1,
         )
@@ -234,8 +242,8 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         # Randomize object position
         root_states = self.object.data.default_root_state[env_ids].clone()
         rand_samples = sample_uniform(
-            lower=torch.tensor([-0.1, -0.4, 0.0], device=self.device),
-            upper=torch.tensor([0.2, 0.4, 0.0], device=self.device),
+            lower=torch.tensor([-0.15, -0.2, 0.0], device=self.device),
+            upper=torch.tensor([0.15, 0.2, 0.0], device=self.device),
             size=(len(env_ids), 3),
             device=self.device,
         )
