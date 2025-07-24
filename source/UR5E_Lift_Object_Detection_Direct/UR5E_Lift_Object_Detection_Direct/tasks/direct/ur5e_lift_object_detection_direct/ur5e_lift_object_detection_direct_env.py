@@ -238,10 +238,17 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         self.ur5e.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
         # Reset tray
-        self.tray.write_root_state_to_sim(
-            self.tray.data.default_root_state[env_ids],
-            env_ids=env_ids,
+        root_states = self.tray.data.default_root_state[env_ids].clone()
+        rand_samples = sample_uniform(
+            lower=torch.tensor([-0.0, -0.0, 0.0], device=self.device),
+            upper=torch.tensor([0.0, 0.0, 0.0], device=self.device),
+            size=(len(env_ids), 3),
+            device=self.device,
         )
+        positions = root_states[:, :3] + self.scene.env_origins[env_ids] + rand_samples
+        orientations = root_states[:, 3:7]
+        velocities = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device).repeat(len(env_ids), 1)
+        self.tray.write_root_state_to_sim(torch.cat([positions, orientations, velocities], dim=-1), env_ids=env_ids)
 
         # Randomize object position
         root_states = self.object.data.default_root_state[env_ids].clone()
