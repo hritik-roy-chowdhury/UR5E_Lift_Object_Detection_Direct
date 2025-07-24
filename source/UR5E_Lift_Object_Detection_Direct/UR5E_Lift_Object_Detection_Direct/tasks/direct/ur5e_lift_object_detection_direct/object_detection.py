@@ -36,30 +36,34 @@ def inference(
     depth_data = depth_data.permute(0, 3, 1, 2).to(torch.float32).to(device)
 
     object_distances = []
+    image_width = depth_data.shape[3]
+    image_height = depth_data.shape[2]
     for i in range(len(bounding_boxes)):
-        x_center, y_center, width, height = bounding_boxes[i]
-        x_min = int((x_center - width / 2) * depth_data.shape[3])
-        x_max = int((x_center + width / 2) * depth_data.shape[3])
-        y_min = int((y_center - height / 2) * depth_data.shape[2])
-        y_max = int((y_center + height / 2) * depth_data.shape[2])
-
-        # Clamp values to ensure they are within image bounds
-        x_min = max(0, x_min)
-        x_max = min(depth_data.shape[3] - 1, x_max)
-        y_min = max(0, y_min)
-        y_max = min(depth_data.shape[2] - 1, y_max)
-
-        # Extract the depth values for the bounding box region
-        depth_region = depth_data[i, 0, y_min:y_max, x_min:x_max]
-        if depth_region.numel() > 0:  # Ensure the region is not empty
-            avg_depth = depth_region.mean().item()
-            object_distances.append(avg_depth)
+        x_center, y_center, _, _ = bounding_boxes[i]
+        x_center_pixels = int(x_center * image_width)
+        y_center_pixels = int(y_center * image_height)
+        depth = depth_data[i, 0, y_center_pixels, x_center_pixels]
+        if depth > 0:  # Check if depth is valid
+            object_distances.append(depth.item())
         else:
-            object_distances.append(0.8)  # Handle empty region
+            object_distances.append(0.8)
 
     object_distances = torch.tensor(object_distances, device=device)
 
-    combined_results = torch.cat((bounding_boxes, object_distances.unsqueeze(1)), dim=1)
+    # Use object image bounding box and depth to calculate object world coordinates
+    K = camera.data.intrinsic_matrices
+    object_coords = torch.zeros((len(bounding_boxes), 3), device=device)
+    for i in range(len(bounding_boxes)):
+        x_center, y_center, _, _ = bounding_boxes[i]
+        u = int(x_center * image_width)
+        v = int(y_center * image_height)
+        z = object_distances[i]
+
+        p = torch.tensor([u, v, 1.0], device=device)
+        inv_K = torch.linalg.inv(K[0]) # Taking the first camera's intrinsic matrix
+        p_c = (inv_K @ p) * z
+
+        object_coords[i] = p_c 
 
     # Printing
     # print("\n\nResults for Env 1:")
@@ -76,4 +80,4 @@ def inference(
     # if len(object_distances) > 0:
     #     print(f"Object Distance: {object_distances[0]}")
 
-    return combined_results
+    return object_coords

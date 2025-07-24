@@ -47,7 +47,7 @@ class UR5ELiftObjectDetectionDirectEnvCfg(DirectRLEnvCfg):
     # spaces definition
     action_space = 7
     observation_space = {
-        "robot_state": 24
+        "robot_state": 19
     }
     state_space = 0
 

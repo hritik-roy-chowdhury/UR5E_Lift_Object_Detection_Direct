@@ -22,7 +22,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg, FrameTransformer
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
 from isaaclab.sensors import CameraCfg, TiledCameraCfg, TiledCamera
-from isaaclab.utils.math import subtract_frame_transforms
+from isaaclab.utils.math import subtract_frame_transforms, combine_frame_transforms
 
 from .ur5e_lift_object_detection_direct_env_cfg import UR5ELiftObjectDetectionDirectEnvCfg
 
@@ -160,15 +160,20 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         robot_quat_w = self.ur5e.data.root_state_w[:, 3:7]  # Robot base orientation in world frame
         object_pos_b, _ = subtract_frame_transforms(robot_pos_w, robot_quat_w, object_pos_w)
 
-        # Object detection
-        object_position = inference(self.camera)
-
-        # End-effector position in camera frame
-        ee_pos_w = self.ee_frame.data.target_pos_w[..., 0, :]
-        ee_quat_w = self.ee_frame.data.target_quat_w[..., 0, :]
-        camera_pos_w = self.camera.data.pos_w
-        camera_quat_w = self.camera.data.quat_w_world
-        ee_pos_in_camera_frame, _ = subtract_frame_transforms(camera_pos_w, camera_quat_w, ee_pos_w, ee_quat_w)
+        # Object detected position in the robot's base frame
+        object_position = inference(self.camera) # Object position in camera frame
+        object_position = torch.stack(
+            [
+                object_position[:, 2],  # z -> x
+                -object_position[:, 0],  # x -> -y
+                -object_position[:, 1],  # y -> -z
+            ],
+            dim=-1,
+        )
+        camera_pos_b = self.camera.data.pos_w # Camera position in world frame
+        camera_quat_b = self.camera.data.quat_w_world # Camera orientation in world frame
+        camera_pos_r, camera_quat_r = subtract_frame_transforms(robot_pos_w, robot_quat_w, camera_pos_b, camera_quat_b) # Transform camera position to robot base frame
+        object_detected_position, _ = combine_frame_transforms(camera_pos_r, camera_quat_r, object_position) # Transform object position from camera frame to robot base frame
 
         # Concatenate robot state and object position for observations
         robot_state = torch.cat(
@@ -177,8 +182,7 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
                 self.ur5e_joint_vel[:, self.arm_joints_ids],
                 self.ur5e_joint_pos[:, self.gripper_joints_ids],
                 self.ur5e_joint_vel[:, self.gripper_joints_ids],
-                ee_pos_in_camera_frame,
-                object_position
+                object_detected_position
             ],
             dim=-1,
         )
