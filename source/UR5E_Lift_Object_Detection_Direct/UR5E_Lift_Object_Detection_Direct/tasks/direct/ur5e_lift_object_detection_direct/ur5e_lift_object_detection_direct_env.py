@@ -27,7 +27,7 @@ from isaaclab.utils.math import subtract_frame_transforms, combine_frame_transfo
 from .ur5e_lift_object_detection_direct_env_cfg import UR5ELiftObjectDetectionDirectEnvCfg
 
 from .mdp.rewards import object_position_error, object_position_error_tanh, end_effector_orientation_error
-from .mdp.rewards import object_is_lifted, ground_hit_avoidance, joint_2_tuning, tray_moved
+from .mdp.rewards import object_is_lifted, ground_hit_avoidance, joint_2_tuning, tray_moved, gripper_reward, object_moved_xy
 from .object_detection import inference
 
 
@@ -42,8 +42,14 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         self.arm_joints_ids, _ = self.ur5e.find_joints(name_keys=self.arm_joint_names) # returns ids, names
         self.gripper_joints_ids, _ = self.ur5e.find_joints(name_keys=self.gripper_joint_names) # returns ids, names
 
+        self.previous_gripper_action = torch.zeros((self.num_envs, 1), device=self.device)  # Initialize previous gripper action
+
         self.ur5e_joint_pos = self.ur5e.data.joint_pos # all 12 joints, inlcuding unactuated ones
         self.ur5e_joint_vel = self.ur5e.data.joint_vel
+
+        self.time_steps = 0
+
+        self.original_object_pos = self.object.data.root_pos_w.clone()
 
     def _setup_scene(self):
 
@@ -85,7 +91,7 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
             spawn=sim_utils.CuboidCfg(
                 size=(0.05, 0.05, 0.05),
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-                mass_props=sim_utils.MassPropertiesCfg(mass=0.25),
+                mass_props=sim_utils.MassPropertiesCfg(mass=0.10),
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 1.0), metallic=0.5),
@@ -96,22 +102,22 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         self.scene.rigid_objects["object"] = self.object
 
         # Camera
-        camera_cfg = TiledCameraCfg(
-            prim_path="/World/envs/env_.*/camera",
-            data_types=["rgb", "depth"],
-            spawn=sim_utils.PinholeCameraCfg(
-                focal_length=1.5, focus_distance=0.8, horizontal_aperture=3.896,
-            ),
-            width=self.cfg.camera_width,
-            height=self.cfg.camera_height,
-            update_period=1/20,
-            offset=CameraCfg.OffsetCfg(
-                pos=(1.0, 0.0, 1.85), 
-                rot=(-0.24184, 0.66446, 0.66446, -0.24184), # real, x, y, z (zyx rotation with frames changing with each subrotation)
-            ),
-        )
-        self.camera = TiledCamera(cfg=camera_cfg)
-        self.scene.sensors["camera"] = self.camera
+        # camera_cfg = TiledCameraCfg(
+        #     prim_path="/World/envs/env_.*/camera",
+        #     data_types=["rgb", "depth"],
+        #     spawn=sim_utils.PinholeCameraCfg(
+        #         focal_length=1.5, focus_distance=0.8, horizontal_aperture=3.896,
+        #     ),
+        #     width=self.cfg.camera_width,
+        #     height=self.cfg.camera_height,
+        #     update_period=1/20,
+        #     offset=CameraCfg.OffsetCfg(
+        #         pos=(1.0, 0.0, 1.85), 
+        #         rot=(-0.24184, 0.66446, 0.66446, -0.24184), # real, x, y, z (zyx rotation with frames changing with each subrotation)
+        #     ),
+        # )
+        # self.camera = TiledCamera(cfg=camera_cfg)
+        # self.scene.sensors["camera"] = self.camera
 
         # robot
         self.ur5e = Articulation(self.cfg.ur5e_cfg)
@@ -137,10 +143,13 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         self.actions = actions.clone()
 
+        self.time_steps += 1
+
     def _apply_action(self) -> None:
         # Separate arm actions and gripper actions
         arm_actions = self.actions[:, :-1]  
         gripper_action = self.actions[:, -1].unsqueeze(-1)
+        self.previous_gripper_action = gripper_action.clone()
 
         # Apply arm actions
         self.ur5e.set_joint_position_target(arm_actions, joint_ids=self.arm_joints_ids)
@@ -151,6 +160,7 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
             torch.tensor([0.698, -0.698], device=gripper_action.device),  # Closed position
             torch.tensor([0.0, 0.0], device=gripper_action.device),  # Open position
         )
+
         self.ur5e.set_joint_position_target(gripper_joint_positions, joint_ids=self.gripper_joints_ids)
 
     def _get_observations(self) -> dict:
@@ -161,28 +171,26 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         object_pos_b, _ = subtract_frame_transforms(robot_pos_w, robot_quat_w, object_pos_w)
 
         # Object detected position in the robot's base frame
-        object_position = inference(self.camera) # Object position in camera frame
-        object_position = torch.stack(
-            [
-                object_position[:, 2],  # z -> x
-                -object_position[:, 0],  # x -> -y
-                -object_position[:, 1],  # y -> -z
-            ],
-            dim=-1,
-        )
-        camera_pos_b = self.camera.data.pos_w # Camera position in world frame
-        camera_quat_b = self.camera.data.quat_w_world # Camera orientation in world frame
-        camera_pos_r, camera_quat_r = subtract_frame_transforms(robot_pos_w, robot_quat_w, camera_pos_b, camera_quat_b) # Transform camera position to robot base frame
-        object_detected_position, _ = combine_frame_transforms(camera_pos_r, camera_quat_r, object_position) # Transform object position from camera frame to robot base frame
+        # object_position = inference(self.camera) # Object position in camera frame
+        # object_position = torch.stack(
+        #     [
+        #         object_position[:, 2],  # z -> x
+        #         -object_position[:, 0],  # x -> -y
+        #         -object_position[:, 1],  # y -> -z
+        #     ],
+        #     dim=-1,
+        # )
+        # camera_pos_b = self.camera.data.pos_w # Camera position in world frame
+        # camera_quat_b = self.camera.data.quat_w_world # Camera orientation in world frame
+        # camera_pos_r, camera_quat_r = subtract_frame_transforms(robot_pos_w, robot_quat_w, camera_pos_b, camera_quat_b) # Transform camera position to robot base frame
+        # object_detected_position, _ = combine_frame_transforms(camera_pos_r, camera_quat_r, object_position) # Transform object position from camera frame to robot base frame
 
         # Concatenate robot state and object position for observations
         robot_state = torch.cat(
             [
                 self.ur5e_joint_pos[:, self.arm_joints_ids],
-                self.ur5e_joint_vel[:, self.arm_joints_ids],
                 self.ur5e_joint_pos[:, self.gripper_joints_ids],
-                self.ur5e_joint_vel[:, self.gripper_joints_ids],
-                object_detected_position
+                object_pos_b
             ],
             dim=-1,
         )
@@ -196,18 +204,26 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
+        phase_1 = self.time_steps < 7500
+        phase_2 = self.time_steps >= 7500 and self.time_steps < 15000
+        phase_3 = self.time_steps >= 15000
+
         total_reward = compute_rewards(
-            self.cfg.ee_pos_track_rew_weight,
-            self.cfg.ee_pos_track_fg_rew_weight,
-            self.cfg.ee_orient_track_rew_weight,
-            self.cfg.lifting_rew_weight,
+            self.cfg.ee_pos_track_rew_weight if phase_1 else 0.0,
+            self.cfg.ee_pos_track_fg_rew_weight if phase_1 else 0.0,
+            self.cfg.ee_orient_track_rew_weight if phase_1 else 0.0,
+            self.cfg.lifting_rew_weight if phase_3 else 0.0,
             self.cfg.ground_hit_avoidance_rew_weight,
-            self.cfg.joint_2_tuning_rew_weight,
+            self.cfg.joint_2_tuning_rew_weight if phase_1 else 0.0,
             self.cfg.tray_moved_rew_weight,
+            self.cfg.gripper_rew_weight if phase_2 else 0.0,
+            self.cfg.object_moved_rew_weight,
+            self.previous_gripper_action,
             self.object,
             self.ee_frame,
             self.ur5e_joint_pos,
-            self.tray
+            self.tray,
+            self.original_object_pos
         )
         return total_reward
 
@@ -263,6 +279,8 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         velocities = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device).repeat(len(env_ids), 1)
         self.object.write_root_state_to_sim(torch.cat([positions, orientations, velocities], dim=-1), env_ids=env_ids)
 
+        self.original_object_pos[env_ids] = self.object.data.root_pos_w[env_ids].clone()
+
 
 #@torch.jit.script
 def compute_rewards(
@@ -273,18 +291,24 @@ def compute_rewards(
     ground_hit_avoidance_rew_weight: float,
     joint_2_tuning_rew_weight: float,
     tray_moved_rew_weight: float,
+    gripper_rew_weight: float,
+    object_moved_rew_weight: float,
+    previous_gripper_action: torch.Tensor,
     object: RigidObject,
     ee_frame: FrameTransformer,
     ur5e_joint_pos: torch.Tensor,
-    tray: RigidObject
+    tray: RigidObject,
+    original_object_pos: torch.Tensor
 ):
     ee_pos_track_rew = ee_pos_track_rew_weight * object_position_error(object, ee_frame)
     ee_pos_track_fg_rew = ee_pos_track_fg_rew_weight * object_position_error_tanh(object, ee_frame, std=0.1)
     ee_orient_track_rew = ee_orient_track_rew_weight * end_effector_orientation_error(ee_frame)
-    lifting_rew = lifting_rew_weight * object_is_lifted(object, ee_frame, std=0.1, std_height=0.1)
+    lifting_rew = lifting_rew_weight * object_is_lifted(object, ee_frame, std=0.1, std_height=0.2, desired_height=1.3)
     ground_hit_avoidance_rew = ground_hit_avoidance_rew_weight * ground_hit_avoidance(object, ee_frame)
     joint_2_tuning_rew = joint_2_tuning_rew_weight * joint_2_tuning(ur5e_joint_pos)
     tray_moved_rew = tray_moved_rew_weight * tray_moved(tray)
+    gripper_rew = gripper_rew_weight * gripper_reward(previous_gripper_action, object, ee_frame)
+    object_moved_rew = object_moved_rew_weight * object_moved_xy(object, original_object_pos)
     
-    total_reward = ee_pos_track_rew + ee_pos_track_fg_rew + ee_orient_track_rew + lifting_rew + ground_hit_avoidance_rew + joint_2_tuning_rew + tray_moved_rew
+    total_reward = ee_pos_track_rew + ee_pos_track_fg_rew + ee_orient_track_rew + lifting_rew + ground_hit_avoidance_rew + joint_2_tuning_rew + tray_moved_rew + gripper_rew + object_moved_rew
     return total_reward
