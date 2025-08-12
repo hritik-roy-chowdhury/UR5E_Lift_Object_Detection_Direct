@@ -6,12 +6,16 @@ from isaaclab.assets import RigidObject
 from isaaclab.sensors.frame_transformer.frame_transformer import FrameTransformer
 from isaaclab.utils.math import quat_error_magnitude, quat_mul
 
+def joint_vel_reward(ur5e_joint_vel: torch.Tensor, arm_joints_ids: tuple, gripper_joints_ids) -> torch.Tensor:
+
+    return torch.sum(torch.square(ur5e_joint_vel[:, arm_joints_ids]), dim=1)
+
 def gripper_reward(previous_gripper_action: torch.Tensor, object: RigidObject, ee_frame: FrameTransformer) -> torch.Tensor:
 
-    gripper_closed = torch.where(previous_gripper_action < 0, 1.0, 0.0).squeeze()
+    gripper_closed = torch.where(previous_gripper_action < 0, 1.0, -5.0).squeeze()
 
     distance_to_object = object_position_error(object, ee_frame)
-    distance_reward = 1 - torch.tanh(distance_to_object / 0.03)
+    distance_reward = 1 - torch.tanh(distance_to_object / 0.05)
 
     # Reward is higher when the gripper is closed and the object is close
     reward = gripper_closed * distance_reward
