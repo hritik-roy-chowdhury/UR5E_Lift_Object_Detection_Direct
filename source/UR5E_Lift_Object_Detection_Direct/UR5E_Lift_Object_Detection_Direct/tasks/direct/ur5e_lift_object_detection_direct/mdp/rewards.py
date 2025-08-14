@@ -15,7 +15,7 @@ def gripper_reward(previous_gripper_action: torch.Tensor, object: RigidObject, e
     gripper_closed = torch.where(previous_gripper_action < 0, 1.0, -5.0).squeeze()
 
     distance_to_object = object_position_error(object, ee_frame)
-    distance_reward = 1 - torch.tanh(distance_to_object / 0.05)
+    distance_reward = torch.where(distance_to_object < 0.05, 1.0, 0.0)
 
     # Reward is higher when the gripper is closed and the object is close
     reward = gripper_closed * distance_reward
