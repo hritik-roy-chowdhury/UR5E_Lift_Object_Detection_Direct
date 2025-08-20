@@ -27,16 +27,29 @@ class UR5ELiftObjectDetectionDirectEnvCfg(DirectRLEnvCfg):
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=2.5, replicate_physics=True)
+    
+    """
+    ee_pos_track_rew_weight = -3.0
+    ee_pos_track_fg_rew_weight = 20.0
+    ee_orient_track_rew_weight = -1.0
+    lifting_rew_weight = 50.0
+    ground_hit_avoidance_rew_weight = 1.0
+    joint_2_tuning_rew_weight = 0.0
+    tray_moved_rew_weight = 0.0
+    gripper_rew_weight = 25.0
+    object_moved_rew_weight = 0.0
+    joint_vel_rew_weight = -6e-4
+    """
 
     # reward weights
     ee_pos_track_rew_weight = -3.0
-    ee_pos_track_fg_rew_weight = 20.0
+    ee_pos_track_fg_rew_weight = 15.0
     ee_orient_track_rew_weight = -2.0
-    lifting_rew_weight = 50.0
-    ground_hit_avoidance_rew_weight = 1.0
+    lifting_rew_weight = 100.0
+    ground_hit_avoidance_rew_weight = 0.0
     joint_2_tuning_rew_weight = 3.0
     tray_moved_rew_weight = 0.0
-    gripper_rew_weight = 25.0
+    gripper_rew_weight = 0.0
     object_moved_rew_weight = 0.0
     joint_vel_rew_weight = -6e-4
 

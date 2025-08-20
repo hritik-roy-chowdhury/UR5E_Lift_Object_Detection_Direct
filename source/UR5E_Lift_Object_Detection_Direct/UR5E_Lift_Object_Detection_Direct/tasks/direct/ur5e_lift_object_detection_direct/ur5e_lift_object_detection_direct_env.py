@@ -206,19 +206,19 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-        phase_1 = self.time_steps < 20000
-        phase_2 = self.time_steps >= 10000 and self.time_steps < 20000
+        phase_2 = self.time_steps >= 10000
         phase_3 = self.time_steps >= 20000
+        phase_4 = self.time_steps >= 30000
 
         total_reward = compute_rewards(
-            self.cfg.ee_pos_track_rew_weight if phase_1 else 0.0,
-            self.cfg.ee_pos_track_fg_rew_weight if phase_1 else 0.0,
-            self.cfg.ee_orient_track_rew_weight if phase_1 else 0.0,
-            self.cfg.lifting_rew_weight if phase_3 else 0.0,
+            self.cfg.ee_pos_track_rew_weight,
+            self.cfg.ee_pos_track_fg_rew_weight,
+            self.cfg.ee_orient_track_rew_weight,
+            self.cfg.lifting_rew_weight,
             self.cfg.ground_hit_avoidance_rew_weight,
-            self.cfg.joint_2_tuning_rew_weight if phase_1 else 0.0,
+            self.cfg.joint_2_tuning_rew_weight,
             self.cfg.tray_moved_rew_weight,
-            self.cfg.gripper_rew_weight if phase_2 else 0.0,
+            self.cfg.gripper_rew_weight,
             self.cfg.object_moved_rew_weight,
             self.cfg.joint_vel_rew_weight,
             self.previous_gripper_action,
@@ -313,7 +313,7 @@ def compute_rewards(
     ee_pos_track_rew = ee_pos_track_rew_weight * object_position_error(object, ee_frame)
     ee_pos_track_fg_rew = ee_pos_track_fg_rew_weight * object_position_error_tanh(object, ee_frame, std=0.1)
     ee_orient_track_rew = ee_orient_track_rew_weight * end_effector_orientation_error(ee_frame)
-    lifting_rew = lifting_rew_weight * object_is_lifted(object, ee_frame, std=0.1, std_height=0.2, desired_height=1.3)
+    lifting_rew = lifting_rew_weight * object_is_lifted(object, ee_frame, std=0.1, std_height=0.1, desired_height=1.3)
     ground_hit_avoidance_rew = ground_hit_avoidance_rew_weight * ground_hit_avoidance(object, ee_frame)
     joint_2_tuning_rew = joint_2_tuning_rew_weight * joint_2_tuning(ur5e_joint_pos)
     tray_moved_rew = tray_moved_rew_weight * tray_moved(tray)

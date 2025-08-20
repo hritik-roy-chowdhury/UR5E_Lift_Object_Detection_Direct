@@ -6,21 +6,32 @@ from isaaclab.assets import RigidObject
 from isaaclab.sensors.frame_transformer.frame_transformer import FrameTransformer
 from isaaclab.utils.math import quat_error_magnitude, quat_mul
 
+def object_is_lifted(object: RigidObject, ee_frame: FrameTransformer, std: float, std_height: float, desired_height: float) -> torch.Tensor:
+    object_height_from_desired = desired_height - object.data.root_pos_w[:, 2]
+    object_height_reward = 1 - torch.tanh(object_height_from_desired / std_height)
+
+    reach_reward = object_position_error_tanh(object, ee_frame, std)
+    reward =  object_height_reward * reach_reward
+
+    print(f"Reach reward: {reach_reward}, Object height: {object_height_from_desired}, Reward: {reward}")
+
+    return reward
+
 def joint_vel_reward(ur5e_joint_vel: torch.Tensor, arm_joints_ids: tuple, gripper_joints_ids) -> torch.Tensor:
 
     return torch.sum(torch.square(ur5e_joint_vel[:, arm_joints_ids]), dim=1)
 
 def gripper_reward(previous_gripper_action: torch.Tensor, object: RigidObject, ee_frame: FrameTransformer) -> torch.Tensor:
 
-    gripper_closed = torch.where(previous_gripper_action < 0, 1.0, -5.0).squeeze()
+    gripper_closed = torch.where(previous_gripper_action < 0, 1.0, 0.0).squeeze()
 
     distance_to_object = object_position_error(object, ee_frame)
-    distance_reward = torch.where(distance_to_object < 0.05, 1.0, 0.0)
+    distance_reward = 1 - torch.tanh(distance_to_object / 0.05)
 
     # Reward is higher when the gripper is closed and the object is close
     reward = gripper_closed * distance_reward
 
-    print(f"Gripper closed: {gripper_closed}, Distance reward: {distance_reward}, Reward: {reward}")
+    #print(f"Gripper closed: {gripper_closed}, Distance reward: {distance_reward}, Reward: {reward}")
 
     return reward
 
@@ -62,15 +73,6 @@ def object_position_error(object: RigidObject, ee_frame: FrameTransformer) -> to
 def object_position_error_tanh(object: RigidObject, ee_frame: FrameTransformer, std: float) -> torch.Tensor:
     object_ee_distance = object_position_error(object, ee_frame)
     reward = 1 - torch.tanh(object_ee_distance / std)
-    return reward
-
-def object_is_lifted(object: RigidObject, ee_frame: FrameTransformer, std: float, std_height: float, desired_height) -> torch.Tensor:
-    object_height_from_desired = torch.norm(desired_height - object.data.root_pos_w[:, 2], dim=0)
-    object_height_reward = 1 - torch.tanh(object_height_from_desired / std_height)
-
-    reach_reward = object_position_error_tanh(object, ee_frame, std)
-    reward = reach_reward * object_height_reward
-
     return reward
 
 def ground_hit_avoidance(object: RigidObject, ee_frame: FrameTransformer) -> torch.Tensor:
