@@ -27,7 +27,8 @@ from isaaclab.utils.math import subtract_frame_transforms, combine_frame_transfo
 from .ur5e_lift_object_detection_direct_env_cfg import UR5ELiftObjectDetectionDirectEnvCfg
 
 from .mdp.rewards import object_position_error, object_position_error_tanh, end_effector_orientation_error
-from .mdp.rewards import object_is_lifted, ground_hit_avoidance, joint_2_tuning, tray_moved, gripper_reward, object_moved_xy, joint_vel_reward
+from .mdp.rewards import object_is_lifted, ground_hit_avoidance, joint_2_tuning, tray_moved, gripper_reward, object_moved_xy
+from .mdp.rewards import joint_vel_reward, action_rate_reward
 from .object_detection import inference
 
 
@@ -42,7 +43,7 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         self.arm_joints_ids, _ = self.ur5e.find_joints(name_keys=self.arm_joint_names) # returns ids, names
         self.gripper_joints_ids, _ = self.ur5e.find_joints(name_keys=self.gripper_joint_names) # returns ids, names
 
-        self.previous_gripper_action = torch.zeros((self.num_envs, 1), device=self.device)  # Initialize previous gripper action
+        self.previous_actions = torch.zeros((self.num_envs, 7), device=self.device)  # Initialize previous actions
 
         self.ur5e_joint_pos = self.ur5e.data.joint_pos # all 12 joints, inlcuding unactuated ones
         self.ur5e_joint_vel = self.ur5e.data.joint_vel
@@ -149,7 +150,6 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
         # Separate arm actions and gripper actions
         arm_actions = self.actions[:, :-1]  
         gripper_action = self.actions[:, -1].unsqueeze(-1)
-        self.previous_gripper_action = gripper_action.clone()
 
         # Apply arm actions
         self.ur5e.set_joint_position_target(arm_actions, joint_ids=self.arm_joints_ids)
@@ -192,6 +192,7 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
                 self.ur5e_joint_pos[:, self.gripper_joints_ids],
                 self.ur5e_joint_vel[:, self.arm_joints_ids],
                 self.ur5e_joint_vel[:, self.gripper_joints_ids],
+                self.actions[:, -1].unsqueeze(-1), # gripper action
                 object_pos_b
             ],
             dim=-1,
@@ -218,10 +219,12 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
             self.cfg.ground_hit_avoidance_rew_weight,
             self.cfg.joint_2_tuning_rew_weight,
             self.cfg.tray_moved_rew_weight,
-            self.cfg.gripper_rew_weight,
+            self.cfg.gripper_rew_weight if phase_2 else 0.0,
             self.cfg.object_moved_rew_weight,
             self.cfg.joint_vel_rew_weight,
-            self.previous_gripper_action,
+            self.cfg.action_rate_rew_weight,
+            self.previous_actions,
+            self.actions,
             self.object,
             self.ee_frame,
             self.ur5e_joint_pos,
@@ -231,6 +234,9 @@ class UR5ELiftObjectDetectionDirectEnv(DirectRLEnv):
             self.tray,
             self.original_object_pos
         )
+
+        self.previous_actions = self.actions.clone()
+
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -300,7 +306,9 @@ def compute_rewards(
     gripper_rew_weight: float,
     object_moved_rew_weight: float,
     joint_vel_rew_weight: float,
-    previous_gripper_action: torch.Tensor,
+    action_rate_rew_weight: float,
+    previous_actions: torch.Tensor,
+    actions: torch.Tensor,
     object: RigidObject,
     ee_frame: FrameTransformer,
     ur5e_joint_pos: torch.Tensor,
@@ -317,9 +325,10 @@ def compute_rewards(
     ground_hit_avoidance_rew = ground_hit_avoidance_rew_weight * ground_hit_avoidance(object, ee_frame)
     joint_2_tuning_rew = joint_2_tuning_rew_weight * joint_2_tuning(ur5e_joint_pos)
     tray_moved_rew = tray_moved_rew_weight * tray_moved(tray)
-    gripper_rew = gripper_rew_weight * gripper_reward(previous_gripper_action, object, ee_frame)
+    gripper_rew = gripper_rew_weight * gripper_reward(actions, object, ee_frame)
     object_moved_rew = object_moved_rew_weight * object_moved_xy(object, original_object_pos)
     joint_vel_rew = joint_vel_rew_weight * joint_vel_reward(ur5e_joint_vel, arm_joints_ids, gripper_joints_ids)
+    action_rate_rew = action_rate_rew_weight * action_rate_reward(previous_actions, actions)
     
-    total_reward = ee_pos_track_rew + ee_pos_track_fg_rew + ee_orient_track_rew + lifting_rew + ground_hit_avoidance_rew + joint_2_tuning_rew + tray_moved_rew + gripper_rew + object_moved_rew + joint_vel_rew
+    total_reward = ee_pos_track_rew + ee_pos_track_fg_rew + ee_orient_track_rew + lifting_rew + ground_hit_avoidance_rew + joint_2_tuning_rew + tray_moved_rew + gripper_rew + object_moved_rew + joint_vel_rew + action_rate_rew
     return total_reward

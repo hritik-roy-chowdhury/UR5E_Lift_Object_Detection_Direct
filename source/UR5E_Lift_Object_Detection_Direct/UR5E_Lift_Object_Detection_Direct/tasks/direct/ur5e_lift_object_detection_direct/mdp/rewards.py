@@ -13,25 +13,29 @@ def object_is_lifted(object: RigidObject, ee_frame: FrameTransformer, std: float
     reach_reward = object_position_error_tanh(object, ee_frame, std)
     reward =  object_height_reward * reach_reward
 
-    print(f"Reach reward: {reach_reward}, Object height: {object_height_from_desired}, Reward: {reward}")
+    #print(f"Reach reward: {reach_reward}, Object height: {object_height_from_desired}, Reward: {reward}")
 
     return reward
+
+def action_rate_reward(previous_actions: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+
+    return torch.sum(torch.square(actions[:, -1].unsqueeze(-1) - previous_actions[:, -1].unsqueeze(-1)), dim=1)
 
 def joint_vel_reward(ur5e_joint_vel: torch.Tensor, arm_joints_ids: tuple, gripper_joints_ids) -> torch.Tensor:
 
     return torch.sum(torch.square(ur5e_joint_vel[:, arm_joints_ids]), dim=1)
 
-def gripper_reward(previous_gripper_action: torch.Tensor, object: RigidObject, ee_frame: FrameTransformer) -> torch.Tensor:
-
-    gripper_closed = torch.where(previous_gripper_action < 0, 1.0, 0.0).squeeze()
+def gripper_reward(actions: torch.Tensor, object: RigidObject, ee_frame: FrameTransformer) -> torch.Tensor:
 
     distance_to_object = object_position_error(object, ee_frame)
-    distance_reward = 1 - torch.tanh(distance_to_object / 0.05)
+    object_is_close = torch.where(distance_to_object < 0.10, 1.0, -1.0)
 
-    # Reward is higher when the gripper is closed and the object is close
-    reward = gripper_closed * distance_reward
+    gripper_action = actions[:, -1].unsqueeze(-1)
+    gripper_closed = torch.where(gripper_action < 0, 1.0, -1.0).squeeze()
+    
+    reward = gripper_closed * object_is_close
 
-    #print(f"Gripper closed: {gripper_closed}, Distance reward: {distance_reward}, Reward: {reward}")
+    print(f"Gripper closed: {gripper_closed}, Distance: {distance_to_object}, Reward: {reward}")
 
     return reward
 
