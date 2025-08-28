@@ -46,7 +46,7 @@ class UR5ELiftObjectDetectionDirectEnvCfg(DirectRLEnvCfg):
     ee_pos_track_fg_rew_weight = 25.0
     ee_orient_track_rew_weight = 10.0
     lifting_rew_weight = 0.0
-    ground_hit_avoidance_rew_weight = 0.5
+    ground_hit_avoidance_rew_weight = 2.0
     joint_2_tuning_rew_weight = 3.0
     tray_moved_rew_weight = 0.0
     gripper_rew_weight = 10.0

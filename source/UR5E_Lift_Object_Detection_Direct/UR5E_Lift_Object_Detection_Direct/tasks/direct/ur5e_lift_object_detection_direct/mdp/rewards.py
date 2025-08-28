@@ -6,14 +6,14 @@ from isaaclab.assets import RigidObject
 from isaaclab.sensors.frame_transformer.frame_transformer import FrameTransformer
 from isaaclab.utils.math import quat_error_magnitude, quat_mul
 
-def object_is_lifted(object: RigidObject, ee_frame: FrameTransformer, std: float, std_height: float, desired_height: float) -> torch.Tensor:
-    object_height_from_desired = desired_height - object.data.root_pos_w[:, 2]
-    object_height_reward = 1 - torch.tanh(object_height_from_desired / std_height)
+def object_is_lifted(object: RigidObject, ee_frame: FrameTransformer, std: float, std_height: float) -> torch.Tensor:
+    object_height_from_initial = object.data.root_pos_w[:, 2] - 1.130
+    object_height_reward = torch.tanh(object_height_from_initial / std_height)
 
     reach_reward = object_position_error_tanh(object, ee_frame, std)
     reward =  object_height_reward * reach_reward
 
-    #print(f"Reach reward: {reach_reward}, Object height: {object_height_from_desired}, Reward: {reward}")
+    #print(f"Object height: {object_height_from_initial}, Height reward: {object_height_reward}, Reach reward: {reach_reward}, Total reward: {reward}")
 
     return reward
 
@@ -68,7 +68,7 @@ def end_effector_orientation_error(ee_frame: FrameTransformer, std: float) -> to
     error = quat_error_magnitude(curr_quat_w, des_quat_w)
     reward = torch.cos(error / std)
 
-    print(f"Orientation error: {error}, Reward: {reward}")
+    #print(f"Orientation error: {error}, Reward: {reward}")
 
     return reward
 
